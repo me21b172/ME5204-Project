@@ -115,7 +115,10 @@ def matrix_helper(args):
             rho = N@rho_T(theta_prev_pic[np.ix_(econ,[0])])  
             c = N@cp_T(theta_prev_pic[np.ix_(econ,[0])])
         elif mode == "phase_change":
-            rho,c,kappa = props_chooser(theta_prev_pic[np.ix_(econ,[0])],T_rep)
+            rhos,cs,kappas = props_chooser(theta_prev_pic[np.ix_(econ,[0])],T_rep)
+            kappa = N@kappas/1e3
+            rho = N@rhos/1e9 
+            c = N@cs
         K_loc += kappa*a
         G_loc += rho*c*vo*b
         X  =np.matmul(N,boundary)
@@ -160,7 +163,7 @@ def matrix_helper(args):
                 bt += N_line.T*np.linalg.det(Jac_line)*(-qo)*line_weights[k]
             BT_row.append(n1)
             BT_row.append(n2)
-            BT_data.append(bt[l,0])
-            BT_data.append(bt[m,0])
+            BT_data.append(bt[0,0])
+            BT_data.append(bt[1,0])
                 
     return K_row, K_col, K_data, G_row, G_col, G_data, F_row,F_data, BT_row, BT_data,area
