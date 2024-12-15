@@ -9,10 +9,10 @@ def k_T(T):
     return 3.276e-7*T+0.0793  #W/mm.K
 
 def cp_T(T):
-    return 550 #J/kgK
+    return 0*T+550 #J/kgK
 
 def rho_T(T):
-    return 2.116e-6 #kg/mm^3
+    return 0*T+2.116e-6 #kg/mm^3
 
 def rho_Ti(T, phase = 'alpha'):
     if phase == 'alpha':
@@ -68,7 +68,7 @@ def matrix_helper(args):
     rho = 7.6e-6 #kg/mm^3
     kappa = 0.025 #W/mm.K
     ro = 2 #mm
-    vo = 2 #mm/s
+    vo = -2 #mm/s
     
     ln = np.where(nodes[:,0] == 0)[0]
     rn = np.where(nodes[:,0] == np.max(nodes[:,0]))[0]
@@ -98,7 +98,7 @@ def matrix_helper(args):
     Jac_inv = np.linalg.inv(Jac)
     
     area = 0
-    if mode == "non_linear":
+    if mode == "phase_change":
         T_rep = np.mean(theta_prev_time[np.ix_(econ,[0])]) #temperature at the centroid of the element
     K_loc = np.zeros((nnode,nnode))
     G_loc = np.zeros((nnode,nnode))
@@ -110,10 +110,15 @@ def matrix_helper(args):
         b = N.T@dN_dx*(np.linalg.det(Jac))*weights[k]
 
         if mode == "non_linear":
-            # rhos,cs,ks = props_chooser(theta_prev_pic[np.ix_(econ,[0])],T_rep)
             kappa = N@k_T(theta_prev_pic[np.ix_(econ,[0])])
             rho = N@rho_T(theta_prev_pic[np.ix_(econ,[0])])  
             c = N@cp_T(theta_prev_pic[np.ix_(econ,[0])])
+            
+        elif mode == "phase_change":
+            rhos,cs,kappas = props_chooser(theta_prev_pic[np.ix_(econ,[0])],T_rep)
+            kappa = N@kappas/1e3
+            rho = N@rhos/1e9 
+            c = N@cs
         K_loc += kappa*a
         G_loc += rho*c*vo*b
         X  =np.matmul(N,boundary)
@@ -158,7 +163,7 @@ def matrix_helper(args):
                 bt += N_line.T*np.linalg.det(Jac_line)*(-qo)*line_weights[k]
             BT_row.append(n1)
             BT_row.append(n2)
-            BT_data.append(bt[l,0])
-            BT_data.append(bt[m,0])
+            BT_data.append(bt[0,0])
+            BT_data.append(bt[1,0])
                 
     return K_row, K_col, K_data, G_row, G_col, G_data, F_row,F_data, BT_row, BT_data,area
