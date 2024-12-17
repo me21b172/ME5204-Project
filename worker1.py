@@ -68,7 +68,7 @@ def matrix_helper(args):
     rho = 7.6e-6 #kg/mm^3
     kappa = 0.025 #W/mm.K
     ro = 2 #mm
-    vo = -2 #mm/s
+    vo = 2 #mm/s
     
     ln = np.where(nodes[:,0] == 0)[0]
     rn = np.where(nodes[:,0] == np.max(nodes[:,0]))[0]
