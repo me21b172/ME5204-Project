@@ -7,13 +7,12 @@ def Q(point,centre,ro):
 
 def k_T(T):
     return 3.276e-7*T+0.0793  #W/mm.K
-    # return 0.0796
 
 def cp_T(T):
-    return 550 #J/kgK
+    return 0*T+550 #J/kgK
 
 def rho_T(T):
-    return 2.116e-6 #kg/mm^3
+    return 0*T+2.116e-6 #kg/mm^3
 
 def rho_Ti(T, phase = 'alpha'):
     if phase == 'alpha':
@@ -58,20 +57,16 @@ def props_chooser(T, T_rep, process = 'heating'):
 def matrix_helper(args):
     nodes,ele,centre,theta_prev_time,theta_prev_pic,mode = args
     gp = 3
-    del_t = 1e-50
-
+    
     K_row,K_col,K_data = [],[],[]
-    K_D_row,K_D_col,K_D_data = [],[],[]
     G_row,G_col,G_data = [],[],[]
-    M_row,M_col,M_data = [],[],[]
-    M_D_row,M_D_col,M_D_data = [],[],[]
     F_row,F_data = [],[]
     BT_row,BT_data = [],[]
     
     qo = 1e-3   # W/mm^2
-    # c = 658 #J/kg.K
-    # rho = 7.6e-6 #kg/mm^3
-    # kappa = 0.025 #W/mm.K
+    c = 658 #J/kg.K
+    rho = 7.6e-6 #kg/mm^3
+    kappa = 0.025 #W/mm.K
     ro = 2 #mm
     vo = 2 #mm/s
     
@@ -103,58 +98,32 @@ def matrix_helper(args):
     Jac_inv = np.linalg.inv(Jac)
     
     area = 0
-    # if mode == "phase_change":
-    T_rep = np.mean(theta_prev_time[np.ix_(econ,[0])]) #temperature at the centroid of the element
+    if mode == "phase_change":
+        T_rep = np.mean(theta_prev_time[np.ix_(econ,[0])]) #temperature at the centroid of the element
     K_loc = np.zeros((nnode,nnode))
-    K_D_loc = np.zeros((nnode,nnode))
     G_loc = np.zeros((nnode,nnode))
-    M_loc = np.zeros((nnode,nnode))
-    M_D_loc = np.zeros((nnode,nnode))
     f_loc = np.zeros((nnode,nnode))
 
     for k,ipk in enumerate(ips):
         N = np.array([[(1-ipk[0]-ipk[1]), ipk[0],ipk[1]]])
         a = (Jac_inv@dN).T@(Jac_inv@dN)*(np.linalg.det(Jac))*weights[k]
         b = N.T@dN_dx*(np.linalg.det(Jac))*weights[k]
-        m = N.T@N*(np.linalg.det(Jac))*weights[k]
 
         if mode == "non_linear":
             # rhos,cs,ks = props_chooser(theta_prev_pic[np.ix_(econ,[0])],T_rep)
-            kappa = k_T((N@theta_prev_pic[np.ix_(econ,[0])])[0][0])
-            rho = rho_T((N@theta_prev_pic[np.ix_(econ,[0])])[0][0])  
-            c = cp_T((N@theta_prev_pic[np.ix_(econ,[0])])[0][0])
-            kappa_t = k_T((N@(theta_prev_pic[np.ix_(econ,[0])]))[0][0]+del_t)
-            rho_t = rho_T((N@theta_prev_pic[np.ix_(econ,[0])])[0][0]+del_t)
-            c_t = cp_T((N@theta_prev_pic[np.ix_(econ,[0])])[0][0]+del_t)
-            # del_k_del_t = (kappa_t - kappa)/del_t
-            # del_rho_del_t = (rho_t - rho)/del_t
-            # del_c_del_t = (c_t - c)/del_t   
+            kappa = N@k_T(theta_prev_pic[np.ix_(econ,[0])])
+            rho = N@rho_T(theta_prev_pic[np.ix_(econ,[0])])  
+            c = N@cp_T(theta_prev_pic[np.ix_(econ,[0])])
         elif mode == "phase_change":
-            rhos,cs,kappas = props_chooser((N@theta_prev_pic[np.ix_(econ,[0])])[0][0],T_rep)
-            rho_t,c_t,kappa_t = props_chooser((N@theta_prev_pic[np.ix_(econ,[0])])[0][0]+del_t,T_rep)
-            # kappa = N@kappas/1e3
-            # rho = N@rhos/1e9 
-            # c = N@cs
-            kappa = kappas/1e3
-            rho = rhos/1e9
-            c = cs  
-            kappa_t = kappa_t/1e3
-            rho_t = rho_t/1e9
-
-        del_k_del_t = (kappa_t - kappa)/del_t
-        del_rho_del_t = (rho_t - rho)/del_t
-        del_c_del_t = (c_t - c)/del_t
+            rhos,cs,kappas = props_chooser(theta_prev_pic[np.ix_(econ,[0])],T_rep)
+            kappa = N@kappas/1e3
+            rho = N@rhos/1e9 
+            c = N@cs
         K_loc += kappa*a
-        K_D_loc += kappa*a + (a@theta_prev_pic[np.ix_(econ,[0])])*N*del_k_del_t
         G_loc += rho*c*vo*b
-        M_loc += rho*c*m
-        M_D_loc += rho*c*m + (m@theta_prev_pic[np.ix_(econ,[0])])*N*(del_c_del_t*rho+del_rho_del_t*c)
-        # print("dc/dt " +str(del_c_del_t))
-        # print("drho/dt " +str(del_rho_del_t))
-        X = np.matmul(N,boundary)
+        X  =np.matmul(N,boundary)
         f_loc += N*Q(X,centre,ro)*np.linalg.det(Jac)*weights[k]
-        area += np.linalg.det(Jac)*weights[k]  
-    # M_D_loc = M_loc
+        area += np.linalg.det(Jac)*weights[k]    
     for i in range(nnode):
         if (f_loc.T[i,0]):
             F_row.append(econ[i])
@@ -169,22 +138,6 @@ def matrix_helper(args):
                 G_row.append(econ[i])
                 G_col.append(econ[j])
                 G_data.append(G_loc[i][j])
-            
-            if K_D_loc[i][j]!=0:
-                K_D_row.append(econ[i])
-                K_D_col.append(econ[j])
-                K_D_data.append(K_D_loc[i][j])
-
-            if M_loc[i][j]!=0:
-                M_row.append(econ[i])
-                M_col.append(econ[j])
-                M_data.append(M_loc[i][j])
-                
-            
-            if M_D_loc[i][j]!=0:
-                M_D_row.append(econ[i])
-                M_D_col.append(econ[j])
-                M_D_data.append(M_D_loc[i][j])
 
     for l,m in zip([0,1,2],[1,2,0]):
         n1 = econ[l]
@@ -213,4 +166,4 @@ def matrix_helper(args):
             BT_data.append(bt[0,0])
             BT_data.append(bt[1,0])
                 
-    return K_row, K_col, K_data, K_D_row, K_D_col, K_D_data ,G_row, G_col, G_data, M_row, M_col, M_data, M_D_row, M_D_col, M_D_data, F_row,F_data, BT_row, BT_data,area
+    return K_row, K_col, K_data, G_row, G_col, G_data, F_row,F_data, BT_row, BT_data,area
