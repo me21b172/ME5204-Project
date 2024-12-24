@@ -3,9 +3,9 @@ def Q(point,centre,ro):
     x = point[0,0] - centre[0,0]
     y = point[0,1] - centre[0,1]
     Qo = 5 ## amplitude in W/mm^2 
-    # return Qo*np.exp(-(x**2+y**2)/ro**2)  ## W/mm^3
-    x = point[0,0]
-    return 15e-3*(x/100)*(1-x/100)
+    return Qo*np.exp(-(x**2+y**2)/ro**2)  ## W/mm^3
+    # x = point[0,0]
+    # return 15e-3*(x/100)*(1-x/100)
 
 def k_T(T):
     # return 3.276e-7*T+0.0793  #W/mm.K
@@ -71,8 +71,8 @@ def matrix_helper(args):
     F_row,F_data = [],[]
     BT_row,BT_data = [],[]
     
-    qo = 0   # W/mm^2
-    # qo = 1e-3   # W/mm^2
+    # qo = 0   # W/mm^2
+    qo = 1e-3   # W/mm^2
     # c = 658 #J/kg.K
     # rho = 7.6e-6 #kg/mm^3
     # kappa = 0.025 #W/mm.K
@@ -199,7 +199,7 @@ def matrix_helper(args):
         check_ln = (n1 in ln and n2 in ln)
 
         bt = np.zeros((2,1))
-        if check_rn or check_tn or check_ln:
+        if check_rn or check_tn or check_bn:
             line_gp = 3
             line_ips = np.array(data_line["ips"][line_gp])
             line_weights = np.array(data_line["weights"][line_gp])
@@ -210,7 +210,7 @@ def matrix_helper(args):
                 Jac_line = np.matmul(dN_line,line_boundary)
                 if np.linalg.det(Jac_line)<0:
                     n1,n2 = n2,n1
-                    line_boundary = nodes[np.ix_([n1,n2],[1 if check_rn or check_ln else 0])] #interchanging nodes"
+                    line_boundary = nodes[np.ix_([n1,n2],[1 if check_rn else 0])] #interchanging nodes"
                     Jac_line = np.matmul(dN_line,line_boundary)
                 bt += N_line.T*np.linalg.det(Jac_line)*(-qo)*line_weights[k]
             BT_row.append(n1)
