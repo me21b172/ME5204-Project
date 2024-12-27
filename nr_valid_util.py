@@ -1,7 +1,7 @@
 import numpy as np
 import time
 from multiprocessing import Manager,Pool
-from worker_sq import picard_square_helper
+from worker_sq import nr_square_helper
 import scipy
 from scipy.sparse import coo_array, csr_array, csc_array
 import matplotlib.pyplot as plt
@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 def flatten(xss):
     return [x for xs in xss for x in xs] 
 
-class picard_sq:
+class nr_sq:
     def __init__(self,nodecoords,elecon):
         self.data_line = {"ips":{2:[-1/np.sqrt(3),1/np.sqrt(3)],3:[-np.sqrt(3/5),0,np.sqrt(3/5)]},\
         "weights":{2:[1,1],3:[5/9,8/9,5/9]}}
@@ -18,7 +18,7 @@ class picard_sq:
         self.nodecoords = nodecoords
         self.elecon = elecon
                         
-    def fit_ele(self,dt,theta_prev_time = None,theta_prev_pic = None,mode = "linear",scheme = "implicit",verbose = False):
+    def fit_ele(self,dt,theta_prev_time = None,theta_prev_nr = None,mode = "linear",scheme = "implicit",verbose = False):
         '''
         Return mass and stiffness matrices alongside the forcing vector
         '''
@@ -44,18 +44,18 @@ class picard_sq:
         M_row,M_col,M_data = [],[],[]
 
         #Parallel processing for matrix computations
-        items = [(nodes,elei,theta_prev_time,theta_prev_pic,mode,scheme) for elei in ele]
+        items = [(nodes,elei,theta_prev_time,theta_prev_nr,mode,scheme) for elei in ele]
         st = time.time()
         with Pool(processes = 4) as pool:
-            results = pool.map(picard_square_helper, items)
+            results = pool.map(nr_square_helper, items)
         if verbose == True:
             print(f"Time for pooling to end {time.time()-st}")
 
         #Accumulating data collected over multiprocessing
         st = time.time()
-        K_row, K_col, K_data, M_row, M_col, M_data, F_row,F_data,areas = list(zip(*results))
-        mega = [K_row, K_col, K_data, M_row, M_col, M_data, F_row,F_data]
-        K_row, K_col, K_data, M_row, M_col, M_data, F_row,F_data = [flatten(mini) for mini in mega]
+        K_row, K_col, K_data, M_row, M_col, M_data, dK_row, dK_col, dK_data, F_row,F_data,areas = list(zip(*results))
+        mega = [K_row, K_col, K_data, M_row, M_col, M_data, dK_row, dK_col, dK_data, F_row,F_data]
+        K_row, K_col, K_data, M_row, M_col, M_data, dK_row, dK_col, dK_data, F_row,F_data = [flatten(mini) for mini in mega]
         if verbose == True:
             print(f"Time for accumulation of data to end {time.time()-st}")
 
@@ -64,6 +64,7 @@ class picard_sq:
         F= csr_array((F_data,(F_row,[0]*len(F_row))),shape = ((nop,1))).toarray()
         
         K_sparse = csr_array((K_data,(K_row,K_col)),shape=(nop,nop))
+        dK_sparse = csr_array((dK_data,(dK_row,dK_col)),shape=(nop,nop))
         M_sparse = csr_array((M_data,(M_row,M_col)),shape=(nop,nop))
         if verbose == True:
             print(f"Time for matrices creation {time.time()-st}")
@@ -71,51 +72,58 @@ class picard_sq:
         #setting up the right hand side
         T_b = 273+100
         non_bn = np.setdiff1d(np.arange(nop),bn)
-        rhs = (F+M_sparse@theta_prev_time/dt)\
-               -T_b*np.sum((K_sparse[:,bn]+M_sparse[:,bn]).toarray(),axis = 1).reshape(-1,1)/dt
         
         st = time.time()
-        K_sub = K_sparse[:,non_bn][non_bn,:]
-        M_sub = M_sparse[:,non_bn][non_bn,:]
-        rhs_sub = csc_array(rhs[np.ix_(non_bn,[0])])
+
+        R_sparse = K_sparse@theta_prev_nr - F +\
+                M_sparse@(theta_prev_nr-theta_prev_time)/dt
+        dR_sparse = dK_sparse + M_sparse/dt
+
         if verbose == True:
-            print(f"Time for sub matrices extraction {time.time()-st}")
+            print(f"Time for sparse matrices extraction {time.time()-st}")
         
         st = time.time()
-        theta_sub = scipy.sparse.linalg.spsolve(K_sub+M_sub/dt,rhs_sub)
+        dtheta_sparse = scipy.sparse.linalg.spsolve(-dR_sparse,R_sparse)
         if verbose == True:
             print(f"Time for inversion {time.time()-st}")
 
-        theta = np.zeros((nop,1))+T_b
-        theta[non_bn,:] = theta_sub.reshape(-1,1)
-        
+        theta_new_nr = np.zeros((nop,1))+T_b
+
+        theta_new_nr[non_bn,:] = theta_prev_nr[non_bn,:]+dtheta_sparse[non_bn].reshape(-1,1)
+
         K = K_sparse
         M = M_sparse
-        return [M,K,F,theta]
+        return [M,K,F,theta_new_nr]
     
-def picard_iterative_sq(soln,nodecoords,ele_con,theta_init):
+def nr_iterative_sq(soln,nodecoords,ele_con,theta_init):
     dt = 1
     times = np.arange(0,10,dt)
     theta_prev_time = theta_init
-    
+
+    nop = nodecoords.shape[0]
+    bn = np.where(nodecoords[:,1] == 0)[0]
+    non_bn = np.setdiff1d(np.arange(nop),bn)
+    T_b = 273+50
+
     for t in times:
         e = 1e5
-        tolerance = 1e-4
+        tolerance = 1e-3
         iter = 0
-        theta_prev_pic = theta_prev_time
+        theta_prev_nr = theta_prev_time
+
         while(e>tolerance):
             iter +=1
-            M,K,F,theta_new = soln.fit_ele(dt,theta_prev_time = theta_prev_time,theta_prev_pic = theta_prev_pic,mode = "non_linear",scheme = "implicit")
-            e = np.linalg.norm(theta_new - theta_prev_pic)
-            theta_prev_pic = theta_new
+            _,_,_,theta_new_nr = soln.fit_ele(dt,theta_prev_time = theta_prev_time,theta_prev_nr = theta_prev_nr,mode = "non_linear",scheme = "implicit")
+            e = np.linalg.norm(theta_new_nr - theta_prev_nr)
+            theta_prev_nr = theta_new_nr
             if t == round(t):
                 print(f"Error at {iter} iteration at time {t} is {e:.2E}")
-        theta_prev_time = theta_new
+        theta_prev_time = theta_new_nr
         
-    plt.tricontourf(nodecoords[:,0],nodecoords[:,1],theta_new.flatten()-273, cmap = 'jet')
+    plt.tricontourf(nodecoords[:,0],nodecoords[:,1],theta_new_nr.flatten()-273, cmap = 'jet')
     plt.title(f"Converged solution")
     plt.colorbar()
     plt.show()
 
-    return theta_new
+    return theta_new_nr
         
