@@ -14,7 +14,7 @@ def cp_T(T):
 def rho_T(T):
     return 0*T+2.116e-6 #kg/mm^3
 
-def rho_Ti(T, phase = 'alpha'):
+def rho_Ti(T, process = 'cooling',phase = 'alpha'):
     if phase == 'alpha':
         return -5.13e-5*(T**2)-0.01935*T+4451
     elif phase == 'beta':
@@ -24,11 +24,23 @@ def rho_Ti(T, phase = 'alpha'):
     else:
         return T
 
-def cp_Ti(T,phase = 'alpha'):
+def cp_Ti(T,process = 'heating',phase = 'alpha'):
     if phase == 'alpha':
-        return 0.25*T+483
+        lin = 0.25*T+483
+        heat = 13000*np.exp(-0.5*(((T-1160)/90)**2))/(90*np.sqrt(2*np.pi))
+        cool = 13000*np.exp(-0.5*(((T-952)/90)**2))/(90*np.sqrt(2*np.pi))
+        if process == 'heating':
+            return lin+heat
+        elif process == 'cooling':
+            return lin+cool
     elif phase == 'beta':
-        return 0.14*T+530
+        lin = 0.14*T+530
+        heat = 41650*np.exp(-0.5*(((T-1905)/9)**2))/(9*np.sqrt(2*np.pi))
+        cool = 41650*np.exp(-0.5*(((T-1855)/9)**2))/(9*np.sqrt(2*np.pi))
+        if process == 'heating':
+            return lin+heat
+        elif process == 'cooling':
+            return lin+cool
     elif phase == 'liquid':
         return 930
     else:
@@ -44,18 +56,23 @@ def k_Ti(T,phase = 'alpha'):
     else:
         return T
 
-def props_chooser(T, T_rep, process = 'heating'):
+
+def props_chooser(T, T_rep, phase = 'alpha',process = 'heating'):
+    return rho_Ti(T,phase ),cp_Ti(T,process,phase),k_Ti(T,phase)
+
+phase_map = {0:'alpha',1:'beta',2:'liquid'}
+def phase_determiner(T_rep,process = 'heating'):
     if (T_rep<1268 and process == 'heating') or (T_rep<=1073 and process == 'cooling'):
-        return rho_Ti(T,phase = 'alpha'),cp_Ti(T,phase = 'alpha'),k_Ti(T,phase = 'alpha')
+        return 0 #alpha
     elif (T_rep<1928 and process == 'heating') or (T_rep>1073 and process == 'cooling'):
-        return rho_Ti(T,phase = 'beta'),cp_Ti(T,phase = 'beta'),k_Ti(T,phase = 'beta')
+        return 1#beta
     elif (T_rep>=1928 and process == 'heating') or (T_rep>=1878 and process == 'cooling'):
-        return rho_Ti(T,phase = 'liquid'),cp_Ti(T,phase = 'liquid'),k_Ti(T,phase = 'liquid')
+        return 2#liquid
     else:
         return -1
 
 def nr_helper_rect(args):
-    nodes,ele,centre,theta_prev_time,theta_prev_nr,mode = args
+    nodes,ele,eleind,centre,theta_prev_time,theta_prev2_time,theta_prev_nr,mode = args
     gp = 3
     
     M_row,M_col,M_data = [],[],[]
@@ -66,6 +83,7 @@ def nr_helper_rect(args):
     dGT_row,dGT_col,dGT_data = [],[],[]
     F_row,F_data = [],[]
     BT_row,BT_data = [],[]
+    phase_ind,phase = [eleind],[]
     
     qo = 1e-3   # W/mm^2
     cp = 658 #J/kg.K
@@ -108,6 +126,14 @@ def nr_helper_rect(args):
     area = 0
     if mode == "phase_change":
         T_rep = np.mean(theta_prev_time[np.ix_(econ,[0])]) #temperature at the centroid of the element
+        if theta_prev2_time is None:
+            process = 'heating'
+        else:
+            T_rep_prev = np.mean(theta_prev2_time[np.ix_(econ,[0])]) 
+            if T_rep>T_rep_prev:
+                process = 'heating'
+            else:
+                process = 'cooling'
 
     M_loc = np.zeros((nnode,nnode))
     K_loc = np.zeros((nnode,nnode))
@@ -117,6 +143,7 @@ def nr_helper_rect(args):
     dGT_loc = np.zeros((nnode,nnode))
     f_loc = np.zeros((nnode,nnode))
 
+    delta = 1e-3
     for k,ipk in enumerate(ips):
         N = np.array([[(1-ipk[0]-ipk[1]), ipk[0],ipk[1]]])
         a = (Jac_inv@dN).T@(Jac_inv@dN)*(np.linalg.det(Jac))*weights[k]
@@ -124,7 +151,6 @@ def nr_helper_rect(args):
         c = N.T@dN_dx*(np.linalg.det(Jac))*weights[k]
 
         if mode == "non_linear":
-            delta = 1e-3
             kappa = N@k_T(theta_prev_nr[np.ix_(econ,[0])])
             rho = N@rho_T(theta_prev_nr[np.ix_(econ,[0])])  
             cp = N@cp_T(theta_prev_nr[np.ix_(econ,[0])])
@@ -133,10 +159,14 @@ def nr_helper_rect(args):
             dcp = N@(cp_T(theta_prev_nr[np.ix_(econ,[0])]+delta) - cp_T(theta_prev_nr[np.ix_(econ,[0])]))/delta
 
         elif mode == "phase_change":
-            rhos,cps,kappas = props_chooser(theta_prev_nr[np.ix_(econ,[0])],T_rep)
+            phase = [phase_determiner(T_rep,process)]
+            rhos,cps,kappas = props_chooser(theta_prev_nr[np.ix_(econ,[0])],T_rep,phase_map[phase[0]],process)
             kappa = N@kappas/1e3
             rho = N@rhos/1e9 
             cp = N@cps
+            dkappa = N@(k_T(theta_prev_nr[np.ix_(econ,[0])]+delta) - k_T(theta_prev_nr[np.ix_(econ,[0])]))/delta
+            drho = N@(rho_T(theta_prev_nr[np.ix_(econ,[0])]+delta) - rho_T(theta_prev_nr[np.ix_(econ,[0])]))/delta
+            dcp = N@(cp_T(theta_prev_nr[np.ix_(econ,[0])]+delta) - cp_T(theta_prev_nr[np.ix_(econ,[0])]))/delta
 
         K_loc += kappa*a
         M_loc += rho*cp*b
@@ -211,7 +241,7 @@ def nr_helper_rect(args):
                 
     return M_row, M_col, M_data,K_row, K_col, K_data, G_row, G_col, G_data, \
            dMT_row, dMT_col, dMT_data,dKT_row, dKT_col, dKT_data, dGT_row, dGT_col, dGT_data,\
-           F_row,F_data, BT_row, BT_data,area
+           F_row,F_data, BT_row, BT_data,phase_ind,phase,area
    
 def picard_helper_rect(args):
     nodes,ele,centre,theta_prev_time,theta_prev_nr,mode = args

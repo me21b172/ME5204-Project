@@ -19,7 +19,8 @@ class transient_fem:
         self.elecon = elecon
         self.centre = centre
     
-    def solver(self,theta_prev_time = None,theta_prev_nr = None,type = "static",dt = None,mode = "linear",verbose = False):
+    def solver(self,theta_prev_time = None,theta_prev2_time=None,theta_prev_nr = None,\
+               type = "static",dt = None,mode = "linear",verbose = False):
         '''
         Return mass and stiffness matrices alongside the forcing vector
         '''
@@ -42,7 +43,7 @@ class transient_fem:
         weights = np.array(self.data_tle["weights"][gp])
 
         #Parallel processing for matrix computations
-        items = [(nodes,elei,source,theta_prev_time,theta_prev_nr,mode) for elei in ele]
+        items = [(nodes,elei,eleind,source,theta_prev_time,theta_prev2_time,theta_prev_nr,mode) for eleind,elei in enumerate(ele)]
         st = time.time()
         with Pool(processes = 4) as pool:
             results = pool.map(nr_helper_rect, items)
@@ -53,15 +54,15 @@ class transient_fem:
         st = time.time()
         M_row, M_col, M_data,K_row, K_col, K_data, G_row, G_col, G_data, \
         dMT_row, dMT_col, dMT_data,dKT_row, dKT_col, dKT_data, dGT_row, dGT_col, dGT_data,\
-        F_row,F_data, BT_row, BT_data,areas = list(zip(*results))
+        F_row,F_data, BT_row, BT_data,phase_ind,phase,areas = list(zip(*results))
 
         mega = [M_row, M_col, M_data,K_row, K_col, K_data, G_row, G_col, G_data, \
         dMT_row, dMT_col, dMT_data,dKT_row, dKT_col, dKT_data, dGT_row, dGT_col, dGT_data,\
-        F_row,F_data, BT_row, BT_data]
+        F_row,F_data, BT_row, BT_data,phase_ind,phase]
 
         M_row, M_col, M_data,K_row, K_col, K_data, G_row, G_col, G_data, \
         dMT_row, dMT_col, dMT_data,dKT_row, dKT_col, dKT_data, dGT_row, dGT_col, dGT_data,\
-        F_row,F_data, BT_row, BT_data = [flatten(mini) for mini in mega]
+        F_row,F_data, BT_row, BT_data,phas_ind,phase = [flatten(mini) for mini in mega]
         if verbose == True:
             print(f"Time for accumulation of data to end {time.time()-st}")
 
@@ -74,6 +75,9 @@ class transient_fem:
         # csc array because column slicing is easy and inversion is faster than coo
 
         st = time.time()
+        phase_prev_nr = np.zeros((ele.shape[0],1))
+        if mode == "phase_change":
+            phase_prev_nr[phas_ind,0] = phase
         F= csc_array((F_data,(F_row,[0]*len(F_row))),shape = ((nop,1))).toarray()
         boundary_term = csc_array((BT_data,(BT_row,[0]*len(BT_row))),shape = ((nop,1))).toarray()
         M_sparse = csc_array((M_data,(M_row,M_col)),shape=(nop,nop))
@@ -90,7 +94,7 @@ class transient_fem:
             G_sparse = csc_array(np.zeros((nop,nop)))
 
         #Setting up the residuals and derivatives by subtracting the dirichlet terms
-        T_l = 20
+        T_l = 20+273
         non_ln = np.setdiff1d(np.arange(nop),ln)
         if type == "static":
             R = F+boundary_term - K_sparse@theta_prev_nr 
@@ -116,41 +120,84 @@ class transient_fem:
         theta = theta_prev_nr.copy()
         theta[non_ln,:] += dtheta_sub
       
-        return [h,theta]
+        return [h,theta,phase_prev_nr]
 
 def nr_iterative_rect(nodecoords,ele_con,source,theta_init,dt = 1,t_final = 1,type = "transient",mode="non_linear"):
 ## the idea is you initialize a temperature profile and find corresponding multipliers for the non linear terms
     #non is number of nodes
 
     times = np.arange(0,t_final,dt)
-
+    #0 is alpha, 1 is beta, 2 is liquid
     theta_prev_time = theta_init
+    theta_prev2_time = None
     theta_prev_nr = theta_init
     for t in times:
         
         e = 1e5
-        tolerance = 1e-4
+        tolerance = 1e-2
         iter = 0
         
         while(e>tolerance):
             iter +=1
-            h,theta_cur_nr = transient_fem(nodecoords,ele_con,source).\
-                       solver(theta_prev_time = theta_prev_time,theta_prev_nr = theta_prev_nr,type = type,dt = dt,mode = mode)
+            h,theta_cur_nr,_ = transient_fem(nodecoords,ele_con,source).\
+                       solver(theta_prev_time = theta_prev_time,theta_prev2_time=theta_prev2_time,
+                              theta_prev_nr = theta_prev_nr,type = type,dt = dt,mode = mode)
+            #only final phase_cur_nr will be used
             e = np.linalg.norm(theta_cur_nr - theta_prev_nr) 
             
             theta_prev_nr = theta_cur_nr
             print(f"Error at {iter} iteration at time {t} is {e:.2E}")
-        
-        theta_prev_time = theta_cur_nr
-        # print(theta_init)
-        plt.figure(figsize=(8,4))
-        plt.tricontourf(nodecoords[:,0],nodecoords[:,1],theta_cur_nr.flatten(),cmap='jet')
-        plt.title(f"Source at {source[0,0],source[0,1]}")
-        plt.colorbar()
-        plt.show()
+
 
         if type == "static":
             break
-        source[0] = source[0] - 2*dt  #moving left with 2 mm/s
+    
+        theta_prev2_time = theta_prev_time
+        theta_prev_time = theta_cur_nr #now running the same loop for phase change equilibrium
+
+        if mode == "non_linear":
+            break
+        #finding the converged phase
+        _,_,phase_prev = transient_fem(nodecoords,ele_con,source).\
+                    solver(theta_prev_time = theta_prev_time,theta_prev2_time=theta_prev2_time,
+                            theta_prev_nr = theta_prev_nr,type = type,dt = dt,mode = mode)
+
+        #establishing equilibrium for new phase 
+        while(e>tolerance):
+            iter +=1
+            h,theta_cur_nr,_ = transient_fem(nodecoords,ele_con,source).\
+                       solver(theta_prev_time = theta_prev_time,theta_prev2_time=theta_prev2_time,
+                              theta_prev_nr = theta_prev_nr,type = type,dt = dt,mode = mode)
+            #only final phase_cur_nr will be used
+            e = np.linalg.norm(theta_cur_nr - theta_prev_nr) 
+            
+            theta_prev_nr = theta_cur_nr
+            print(f"Error at {iter} iteration at time {t} is {e:.2E}")
+
+        theta_prev_time = theta_cur_nr
+        _,_,phase_cur = transient_fem(nodecoords,ele_con,source).\
+            solver(theta_prev_time = theta_prev_time,theta_prev2_time=theta_prev2_time,
+                    theta_prev_nr = theta_prev_nr,type = type,dt = dt,mode = mode)
+        
+        if np.sum(phase_prev - phase_cur)!=0:
+            print("Number of phases which don't match : ",np.sum(phase_prev - phase_cur))
+            "Phase not reconciled"
+            break
+        source[0,0] = source[0,0] - 2*dt  #moving left with 2 mm/s
+    plt.figure(figsize=(8,4))
+    plt.tricontourf(nodecoords[:,0],nodecoords[:,1],theta_cur_nr.flatten(),cmap='jet')
+    plt.title(f"Source at {int(source[0,0]),int(source[0,1])}")
+    plt.colorbar()
+    plt.show()
+
+    ele_x = (nodecoords[ele_con[:,0]-1,0]+nodecoords[ele_con[:,1]-1,0]+nodecoords[ele_con[:,2]-1,0])/3
+    ele_y = (nodecoords[ele_con[:,0]-1,1]+nodecoords[ele_con[:,1]-1,1]+nodecoords[ele_con[:,2]-1,1])/3
+
+    if mode == "phase_change":
+        plt.figure(figsize=(8,4))
+        plt.scatter(ele_x,ele_y,c = phase_cur.flatten(),cmap='jet')
+        plt.title(f"Phase plot for source at {int(source[0,0]),int(source[0,1])}")
+        plt.colorbar()
+        plt.show()
 
     return h,theta_cur_nr

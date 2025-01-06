@@ -1,7 +1,7 @@
 import numpy as np
 import time
 from multiprocessing import Manager,Pool
-from worker_rect import qs_helper
+from worker_rect import picard_helper_rect
 import scipy
 from scipy.sparse import coo_array, csr_array, csc_array
 import matplotlib.pyplot as plt
@@ -48,7 +48,7 @@ class quasi_static_fem:
         items = [(nodes,elei,source,theta_prev_time,theta_prev_pic,mode) for elei in ele]
         st = time.time()
         with Pool(processes = 4) as pool:
-            results = pool.map(qs_helper, items)
+            results = pool.map(picard_helper_rect, items)
         if verbose == True:
             print(f"Time for pooling to end {time.time()-st}")
 

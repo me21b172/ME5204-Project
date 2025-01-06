@@ -1,30 +1,38 @@
 import gmsh
 
-def createMesh(geo_file,msf_all,side = None,msf_adapt=None,x_s=None,y_s=None,is_adapt=False):
+def create_normal_mesh(geo_file,msf_all,side = None,msf_adapt=None,x_s=None,y_s=None,is_adapt=False):
     gmsh.initialize()
     gmsh.open(geo_file)
-    if is_adapt:
-        gmsh.model.mesh.MeshSizeExtendFromBoundary = 0
-        gmsh.model.mesh.MeshSizeFromPoints = 0
-        gmsh.model.mesh.MeshSizeFromCurvature = 0
-        gmsh.model.mesh.field.add("Box", 1)
-        gmsh.model.mesh.field.setNumber(1, "VOut", msf_all)
-        gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
-        gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
-        gmsh.model.mesh.field.setNumber(1, "VIn", msf_adapt)     
-        gmsh.model.mesh.field.setNumber(1, "XMax", min(x_s + side,100)) 
-        gmsh.model.mesh.field.setNumber(1, "XMin", max(x_s - side,0)) 
-        gmsh.model.mesh.field.setNumber(1, "YMax", min(y_s + side,50)) 
-        gmsh.model.mesh.field.setNumber(1, "YMin", max(y_s - side,0))  
-        # Apply the combined field as a background mesh
-        gmsh.model.mesh.field.setAsBackgroundMesh(1)
-    else:
-        gmsh.option.setNumber("Mesh.MeshSizeFactor", msf_all)
+    gmsh.option.setNumber("Mesh.MeshSizeFactor", msf_all)
     gmsh.model.mesh.generate(2)
     mesh_filename = 'reqd_mesh.msh'
     gmsh.write(mesh_filename)
     gmsh.finalize()
     return read_mesh(mesh_filename)
+
+def create_box_mesh(geo_file,msf_all,msf_adapt,length,width,x_s,y_s):
+    gmsh.initialize()
+    gmsh.open(geo_file)
+    gmsh.model.mesh.MeshSizeExtendFromBoundary = 0
+    gmsh.model.mesh.MeshSizeFromPoints = 0
+    gmsh.model.mesh.MeshSizeFromCurvature = 0
+    gmsh.model.mesh.field.add("Box", 1)
+    gmsh.model.mesh.field.setNumber(1, "VOut", msf_all)
+    gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
+    gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+    gmsh.model.mesh.field.setNumber(1, "VIn", msf_adapt)     
+    gmsh.model.mesh.field.setNumber(1, "XMax", min(x_s + length/2,100)) 
+    gmsh.model.mesh.field.setNumber(1, "XMin", max(x_s - length/2,0)) 
+    gmsh.model.mesh.field.setNumber(1, "YMax", min(y_s + width/2,50)) 
+    gmsh.model.mesh.field.setNumber(1, "YMin", max(y_s - width/2,0))  
+    # Apply the combined field as a background mesh
+    gmsh.model.mesh.field.setAsBackgroundMesh(1)
+    gmsh.model.mesh.generate(2)
+    mesh_filename = 'reqd_mesh.msh'
+    gmsh.write(mesh_filename)
+    gmsh.finalize()
+    return read_mesh(mesh_filename)
+
 
 def read_mesh(filepath):
     '''
