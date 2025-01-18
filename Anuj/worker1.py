@@ -18,7 +18,7 @@ def cp_T(T):
 def rho_T(T):
     return 7e-6 #kg/mm^3
 
-def rho_Ti(T, phase = 'alpha'):
+def rho_Ti(T,phase = 'alpha'):
     if phase == 'alpha':
         return -5.13e-5*(T**2)-0.01935*T+4451
     elif phase == 'beta':
@@ -28,11 +28,23 @@ def rho_Ti(T, phase = 'alpha'):
     else:
         return T
 
-def cp_Ti(T,phase = 'alpha'):
+def cp_Ti(T,process = 'heating',phase = 'alpha'):
     if phase == 'alpha':
-        return 0.25*T+483
+        lin = 0.25*T+483
+        heat = 13000*np.exp(-0.5*(((T-1160)/90)**2))/(90*np.sqrt(2*np.pi))
+        cool = 13000*np.exp(-0.5*(((T-952)/90)**2))/(90*np.sqrt(2*np.pi))
+        if process == 'heating':
+            return lin+heat
+        elif process == 'cooling':
+            return lin+cool
     elif phase == 'beta':
-        return 0.14*T+530
+        lin = 0.14*T+530
+        heat = 41650*np.exp(-0.5*(((T-1905)/9)**2))/(9*np.sqrt(2*np.pi))
+        cool = 41650*np.exp(-0.5*(((T-1855)/9)**2))/(9*np.sqrt(2*np.pi))
+        if process == 'heating':
+            return lin+heat
+        elif process == 'cooling':
+            return lin+cool
     elif phase == 'liquid':
         return 930
     else:
@@ -48,18 +60,23 @@ def k_Ti(T,phase = 'alpha'):
     else:
         return T
 
-def props_chooser(T, T_rep, process = 'heating'):
+
+def props_chooser(T, phase = 'alpha',process = 'heating'):
+    return rho_Ti(T),cp_Ti(T,process,phase),k_Ti(T,phase)
+
+phase_map = {0:'alpha',1:'beta',2:'liquid'}
+def phase_determiner(T_rep,process = 'heating'):
     if (T_rep<1268 and process == 'heating') or (T_rep<=1073 and process == 'cooling'):
-        return rho_Ti(T,phase = 'alpha'),cp_Ti(T,phase = 'alpha'),k_Ti(T,phase = 'alpha')
+        return 'alpha'
     elif (T_rep<1928 and process == 'heating') or (T_rep>1073 and process == 'cooling'):
-        return rho_Ti(T,phase = 'beta'),cp_Ti(T,phase = 'beta'),k_Ti(T,phase = 'beta')
+        return 'beta'
     elif (T_rep>=1928 and process == 'heating') or (T_rep>=1878 and process == 'cooling'):
-        return rho_Ti(T,phase = 'liquid'),cp_Ti(T,phase = 'liquid'),k_Ti(T,phase = 'liquid')
+        return 'liquid'
     else:
         return -1
    
 def matrix_helper(args):
-    nodes,ele,centre,theta_prev_time,theta_prev_pic,mode = args
+    nodes,ele,centre,theta_pprev_time,theta_prev_time,theta_prev_pic,mode = args
     gp = 3
     del_t = 1e-50
 
@@ -134,8 +151,13 @@ def matrix_helper(args):
             # del_rho_del_t = (rho_t - rho)/del_t
             # del_c_del_t = (c_t - c)/del_t   
         elif mode == "phase_change":
-            rhos,cs,kappas = props_chooser((N@theta_prev_pic[np.ix_(econ,[0])])[0][0],T_rep)
-            rho_t,c_t,kappa_t = props_chooser((N@theta_prev_pic[np.ix_(econ,[0])])[0][0]+del_t,T_rep)
+            process = 'heating'
+            T_rep_prev = np.mean(theta_pprev_time[np.ix_(econ,[0])])
+            if(T_rep_prev>T_rep):
+                process = 'cooling'
+            phase = phase_determiner(T_rep=T_rep,process=process)
+            rhos,cs,kappas = props_chooser((N@theta_prev_pic[np.ix_(econ,[0])])[0][0],phase=phase,process=process)
+            rho_t,c_t,kappa_t = props_chooser((N@theta_prev_pic[np.ix_(econ,[0])])[0][0]+del_t,phase=phase,process=process)
             # kappa = N@kappas/1e3
             # rho = N@rhos/1e9 
             # c = N@cs
