@@ -78,7 +78,7 @@ def phase_determiner(T_rep,process = 'heating'):
 def matrix_helper(args):
     nodes,ele,centre,theta_pprev_time,theta_prev_time,theta_prev_pic,mode = args
     gp = 3
-    del_t = 1e-50
+    del_t = 1e-3
 
     K_row,K_col,K_data = [],[],[]
     K_D_row,K_D_col,K_D_data = [],[],[]
