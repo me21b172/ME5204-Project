@@ -72,7 +72,7 @@ def phase_determiner(T_rep,process = 'heating'):
         return -1
 
 def nr_helper_rect(args):
-    nodes,ele,eleind,centre,theta_prev_time,theta_prev2_time,theta_prev_nr,mode = args
+    nodes,ele,eleind,centre,theta_prev_time,theta_prev2_time,theta_prev_nr,theta_phase_temp,mode = args
     gp = 3
     
     M_row,M_col,M_data = [],[],[]
@@ -130,7 +130,7 @@ def nr_helper_rect(args):
             process = 'heating'
         else:
             T_rep_prev = np.mean(theta_prev2_time[np.ix_(econ,[0])]) 
-            if T_rep>T_rep_prev:
+            if T_rep>=T_rep_prev:
                 process = 'heating'
             else:
                 process = 'cooling'
@@ -159,14 +159,18 @@ def nr_helper_rect(args):
             dcp = N@(cp_T(theta_prev_nr[np.ix_(econ,[0])]+delta) - cp_T(theta_prev_nr[np.ix_(econ,[0])]))/delta
 
         elif mode == "phase_change":
-            phase = [phase_determiner(T_rep,process)]
+            phase = [phase_determiner(np.mean(theta_phase_temp[np.ix_(econ,[0])]),process)]
             rhos,cps,kappas = props_chooser(theta_prev_nr[np.ix_(econ,[0])],T_rep,phase_map[phase[0]],process)
+            rhos_n,cps_n,kappas_n = props_chooser(theta_prev_nr[np.ix_(econ,[0])]+delta,T_rep,phase_map[phase[0]],process)
             kappa = N@kappas/1e3
             rho = N@rhos/1e9 
             cp = N@cps
-            dkappa = N@(k_T(theta_prev_nr[np.ix_(econ,[0])]+delta) - k_T(theta_prev_nr[np.ix_(econ,[0])]))/delta
-            drho = N@(rho_T(theta_prev_nr[np.ix_(econ,[0])]+delta) - rho_T(theta_prev_nr[np.ix_(econ,[0])]))/delta
-            dcp = N@(cp_T(theta_prev_nr[np.ix_(econ,[0])]+delta) - cp_T(theta_prev_nr[np.ix_(econ,[0])]))/delta
+            kappa_n = N@kappas_n/1e3
+            rho_n = N@rhos_n/1e9 
+            cp_n = N@cps_n
+            dkappa = (kappa_n-kappa)/delta
+            drho = (rho_n-rho)/delta
+            dcp = (cp_n-cp)/delta
 
         K_loc += kappa*a
         M_loc += rho*cp*b
