@@ -4,7 +4,7 @@ from matplotlib.path import Path
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-def plot_distribution(variable,mini,maxi,nodecoords, ele_con,is_node = True):
+def plot_distribution(variable, mini, maxi, nodecoords, ele_con, is_node=True):
     '''
     variable : variable which should be plotted
     mini : minimum possible value of the variable 
@@ -77,7 +77,7 @@ def find_triangle_params(rep,nodecoords,ele_con):
     print("Triangle not found")
     return -1
 
-def create_normal_mesh(geo_file,msf_all,side = None,msf_adapt=None,x_s=None,y_s=None,is_adapt=False):
+def create_normal_mesh(geo_file, msf_all):
     gmsh.initialize()
     gmsh.open(geo_file)
     gmsh.option.setNumber("Mesh.MeshSizeFactor", msf_all)

@@ -144,6 +144,16 @@ def nr_helper_rect(args):
     f_loc = np.zeros((nnode,nnode))
 
     delta = 1e-3
+
+    h = 10 #to be reconsidered
+    #nodes already reordered
+    x1, y1 = econ[0]
+    x2, y2 = econ[1]
+    x3, y3 = econ[2]
+    d1 = np.sqrt((x2-x1)**2+(y2-y1)**2)
+    d2 = np.sqrt((x3-x2)**2+(y3-y2)**2)
+    d3 = np.sqrt((x1-x3)**2+(y1-y3)**2)
+
     for k,ipk in enumerate(ips):
         N = np.array([[(1-ipk[0]-ipk[1]), ipk[0],ipk[1]]])
         a = (Jac_inv@dN).T@(Jac_inv@dN)*(np.linalg.det(Jac))*weights[k]
@@ -172,7 +182,7 @@ def nr_helper_rect(args):
             drho = (rho_n-rho)/delta
             dcp = (cp_n-cp)/delta
 
-        K_loc += kappa*a
+        K_loc += kappa*a 
         M_loc += rho*cp*b
         G_loc += rho*cp*vo*c
         dKT_loc += kappa*a + dkappa*(a@theta_prev_nr[np.ix_(econ,[0])])@N
@@ -180,7 +190,10 @@ def nr_helper_rect(args):
         dGT_loc += rho*cp*vo*c + vo*(drho*cp+dcp*drho)*(c@theta_prev_nr[np.ix_(econ,[0])])@N
         X  =np.matmul(N,boundary)
         f_loc += N*Q(X,centre,ro)*np.linalg.det(Jac)*weights[k]
-        area += np.linalg.det(Jac)*weights[k]    
+        area += np.linalg.det(Jac)*weights[k] 
+
+    K_loc += h*np.array([[(d1-d3)/3, d1/6, -d3/6],[d1/6, (d1-d2)/3, -d2/6],[-d3/6, -d2/6, -(d2+d3)/3]]) 
+    dKT_loc += h*np.array([[(d1-d3)/3, d1/6, -d3/6],[d1/6, (d1-d2)/3, -d2/6],[-d3/6, -d2/6, -(d2+d3)/3]]) #assuming no temperature dependence of h
     for i in range(nnode):
         if (f_loc.T[i,0]):
             F_row.append(econ[i])
@@ -216,32 +229,14 @@ def nr_helper_rect(args):
                 dGT_col.append(econ[j])
                 dGT_data.append(dGT_loc[i][j])
 
-    for l,m in zip([0,1,2],[1,2,0]):
-        n1 = econ[l]
-        n2 = econ[m]
-        check_rn = (n1 in rn and n2 in rn)
-        check_tn = (n1 in tn and n2 in tn)
-        check_bn = (n1 in bn and n2 in bn)
-
-        bt = np.zeros((2,1))
-        if check_rn or check_tn or check_bn:
-            line_gp = 3
-            line_ips = np.array(data_line["ips"][line_gp])
-            line_weights = np.array(data_line["weights"][line_gp])
-            for k,ipk in enumerate(line_ips):
-                N_line = np.array([(1-ipk)/2, (1+ipk)/2]).reshape(1,-1)
-                dN_line = np.array([-1/2, 1/2]).reshape(1,-1)
-                line_boundary = nodes[np.ix_([n1,n2],[1 if check_rn else 0])] #assuming interfacial lines are along x axis
-                Jac_line = np.matmul(dN_line,line_boundary)
-                if np.linalg.det(Jac_line)<0:
-                    n1,n2 = n2,n1
-                    line_boundary = nodes[np.ix_([n1,n2],[1 if check_rn else 0])] #interchanging nodes"
-                    Jac_line = np.matmul(dN_line,line_boundary)
-                bt += N_line.T*np.linalg.det(Jac_line)*(-qo)*line_weights[k]
-            BT_row.append(n1)
-            BT_row.append(n2)
-            BT_data.append(bt[0,0])
-            BT_data.append(bt[1,0])
+    T_inf = 273+27 #to be reconsidered
+    #nodes already reordered in counter clockwise
+    BT_row.append(econ[0])
+    BT_row.append(econ[1])
+    BT_row.append(econ[2])
+    BT_data.append(h*T_inf*(d1-d3)/2)
+    BT_data.append(h*T_inf*(d1-d2)/2)
+    BT_data.append(h*T_inf*(-d2-d3)/2)
                 
     return M_row, M_col, M_data,K_row, K_col, K_data, G_row, G_col, G_data, \
            dMT_row, dMT_col, dMT_data,dKT_row, dKT_col, dKT_data, dGT_row, dGT_col, dGT_data,\
