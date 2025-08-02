@@ -3,6 +3,12 @@ import numpy as np
 from fea_solver import nr_pipeline
 from gmsh_util import create_normal_mesh
 
+def get_boundary_nodes(nodecoords):
+    ln = np.where(nodecoords[:,0] == 0)[0]
+    rn = np.where(nodecoords[:,0] == np.max(nodecoords[:,0]))[0]
+    bn = np.where(nodecoords[:,1] == 0)[0]
+    tn = np.where(nodecoords[:,1] == np.max(nodecoords[:,1]))[0]
+    return {"ln": ln, "rn": rn, "bn": bn, "tn": tn}
 
 def Q(point, centre, ro):
     x = point[0, 0]
@@ -26,13 +32,8 @@ def props_chooser(T, process):
 
 
 if __name__ == '__main__':
-    ro = 0  # mm
-    vo = 0  # mm/s, 0 if source ain't moving or no source
     problem_params = {
-        "ro": ro,
-        "vo": vo,
-        "source_present": True,
-        "Q": Q
+        "source": {"mode": "volumetric", "Q": Q}
     }
 
     boundary_conditions = {
@@ -56,11 +57,13 @@ if __name__ == '__main__':
     msf = 3
     nodecoords, ele_con = create_normal_mesh(geo_file='square.geo',
                                              msf_all=msf)
+
+    boundary_nodes = get_boundary_nodes(nodecoords)
     T_init = 273+50
     theta_init = np.zeros((nodecoords.shape[0], 1))+T_init
-    temperatures = nr_pipeline(nodecoords, ele_con, theta_init, problem_params, 
+    temperatures = nr_pipeline(nodecoords, ele_con, boundary_nodes, theta_init, problem_params, 
                                boundary_conditions, props_chooser, dt=1, t_final=9,
-                               source=None, mode="transient")
+                               mode="transient")
 
     Ta = temperatures[np.where((nodecoords[:, 0] == 0)
                               * (nodecoords[:, 1] == 100))[0][0], -1]-273

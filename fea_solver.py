@@ -9,39 +9,54 @@ from scipy.sparse import csc_array
 def flatten(xss):
     return [x for xs in xss for x in xs]
 
-
+def zeroQ(point, source, ro):
+    return 0
 class FEMSolver:
-    def __init__(self, nodecoords, elecon, source, problem_params, boundary_conditions, props_chooser):
+    def __init__(self, nodecoords, elecon, boundary_nodes, problem_params, boundary_conditions, props_chooser):
         self.data_line = {"ips": {2: [-1/np.sqrt(3), 1/np.sqrt(3)], 3: [-np.sqrt(3/5), 0, np.sqrt(3/5)]},
                           "weights": {2: [1, 1], 3: [5/9, 8/9, 5/9]}}
         self.data_tle = {"ips": {1: [[1/3, 1/3]], 3: [[1/6, 1/6], [1/6, 2/3], [2/3, 1/6]]},
                          "weights": {1: [1/2], 3: [1/6, 1/6, 1/6]}}
         self.nodecoords = nodecoords
         self.elecon = elecon
-        self.source = source
+        self.boundary_nodes = boundary_nodes
         self.problem_params = problem_params
         self.boundary_conditions = boundary_conditions
         self.props_chooser = props_chooser
-
+        if problem_params["source"]["mode"] == "laser":
+            self.source_pos = problem_params["source"]["position"]
+            self.ro = problem_params["source"]["ro"]
+            self.Q = problem_params["source"]["Q"]
+        elif problem_params["source"]["mode"]=="volumetric":
+            self.source_pos = None
+            self.ro = None
+            self.Q = problem_params["source"]["Q"]
+        elif problem_params["source"]["mode"] == "absent":
+            self.source_pos = None
+            self.ro = None
+            self.Q = zeroQ
+        else:
+            raise Exception("Invalid mode of source")
+        
     def solver(self, theta_prev_time=None, theta_prev2_time=None, theta_prev_nr=None,
-               mode="static", dt=None, source_present=False, verbose=False):
+               mode="static", dt=None, verbose=False):
         '''
         Return mass and stiffness matrices alongside the forcing vector
         '''
 
         nodes = self.nodecoords
         ele = self.elecon
-        source = self.source
-        problem_params = self.problem_params
+        source_pos = self.source_pos
         props_chooser = self.props_chooser
         boundary_conditions = self.boundary_conditions
+        boundary_nodes = self.boundary_nodes
 
         # Data for FEA
         nop = nodes.shape[0]
 
         # Parallel processing for matrix computations
-        items = [(problem_params, nodes, elei, source, theta_prev_time, theta_prev2_time, theta_prev_nr,    
-                  props_chooser, boundary_conditions) for elei in ele]
+        items = [(self.ro, self.Q, nodes, elei, source_pos, theta_prev_time, theta_prev2_time, theta_prev_nr,    
+                  boundary_nodes, props_chooser, boundary_conditions) for elei in ele]
 
         st = time.time()
         with Pool() as pool:
@@ -88,31 +103,27 @@ class FEMSolver:
         if verbose:
             print(f"Time for matrices creation {time.time()-st}")
 
-        if not source_present:
+        if self.problem_params["source"]["mode"] == "absent":
             F = np.zeros((nop, 1))
 
         if mode == "static":
             R = F+boundary_term - K_sparse@theta_prev_nr
             dR = - dKT_sparse
-            # print("R sum: ", R.sum())
-            # print("dR sum: ", dR.sum())
-            # 1/0
+
 
             
         elif mode == "transient":
             R = F+boundary_term - K_sparse@theta_prev_nr - \
                 M_sparse@(theta_prev_nr-theta_prev_time)/dt
             dR = - dKT_sparse - dMT_sparse/dt
-        # print("F: ", F.sum())
-        # print("R: ", R.sum())
-        # print("dR: ", dR.sum())
-        theta = theta_prev_nr.copy()
 
-        ln = np.where(nodes[:,0] == 0)[0]
-        rn = np.where(nodes[:,0] == np.max(nodes[:,0]))[0]
-        bn = np.where(nodes[:,1] == 0)[0]
-        tn = np.where(nodes[:,1] == np.max(nodes[:,1]))[0]
+        theta = theta_prev_nr.copy()
         
+        ln = boundary_nodes["ln"]
+        rn = boundary_nodes["rn"]
+        bn = boundary_nodes["bn"]
+        tn = boundary_nodes["tn"]
+                
         dirichlet_nodes = []
         if boundary_conditions["top"]["mode"] == "const_T":
             dirichlet_nodes.extend(tn.tolist())
@@ -138,31 +149,30 @@ class FEMSolver:
         st = time.time()
         dtheta_sub = - \
             scipy.sparse.linalg.spsolve(dR_sparse, R_sparse).reshape(-1, 1)
-        # print("theta to add: ", dtheta_sub[non_dirichlet_nodes].sum())
         if verbose:
             print(f"Time for inversion {time.time()-st}")
 
         # Final solution with the dirichlet imposed
         theta[non_dirichlet_nodes, :] += dtheta_sub
-        # print("theta: ", theta.sum())
         return theta
 
 
-def nr_pipeline(nodecoords, ele_con, theta_init, problem_params, boundary_conditions, props_chooser, 
-                 source=None, dt=1, t_final=1, mode="transient"):
+def nr_pipeline(nodecoords, ele_con, boundary_nodes, theta_init, problem_params, 
+                boundary_conditions, props_chooser, dt=1, t_final=1, mode="transient"):
 
     non = nodecoords.shape[0]
     times = np.arange(0, t_final+0.9*dt, dt) #include t_final if it is exactly divisible by dt
     temperatures = np.zeros((non, times.shape[0] if mode=="transient" else 1))
     
-    if source is not None:
-        laser_speed = problem_params["vo"]  # mm/s (assumed to move left)
+    if problem_params["source"]["mode"] == "laser":
+        laser_speed = problem_params["source"]["vo"]  # mm/s (assumed to move left)
     
     theta_prev_time = theta_init
     theta_prev2_time = None
     theta_prev_nr = theta_init
 
-    solver_object = FEMSolver(nodecoords, ele_con, source, problem_params, boundary_conditions, props_chooser)
+    solver_object = FEMSolver(nodecoords, ele_con, boundary_nodes, problem_params, 
+                              boundary_conditions, props_chooser)
     for i, t in enumerate(times):
         e = 1e5
         tolerance = 1e-3
@@ -172,7 +182,7 @@ def nr_pipeline(nodecoords, ele_con, theta_init, problem_params, boundary_condit
             theta_cur_nr = solver_object.solver(theta_prev_time=theta_prev_time,       
                                                 theta_prev2_time=theta_prev2_time,
                                                 theta_prev_nr=theta_prev_nr, mode=mode, 
-                                                dt=dt, source_present=problem_params["source_present"])
+                                                dt=dt)
 
             e = np.linalg.norm(theta_cur_nr-theta_prev_nr)
             theta_prev_nr = theta_cur_nr.copy()
@@ -187,7 +197,7 @@ def nr_pipeline(nodecoords, ele_con, theta_init, problem_params, boundary_condit
             f" Min temperature at {t}s: {np.min(theta_cur_nr)-273} degree celcius")
         theta_prev2_time = theta_prev_time.copy()
         theta_prev_time = theta_prev_nr.copy()
-        if source is not None:
-            solver_object.source[0, 0] = solver_object.source[0, 0] - laser_speed * dt  # moving left with 10 mm/s
+        if problem_params["source"]["mode"] == "laser":
+            solver_object.source_pos[0, 0] = solver_object.source_pos[0, 0] - laser_speed * dt  # laser left with 10 mm/s
 
     return temperatures

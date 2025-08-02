@@ -3,6 +3,12 @@ import numpy as np
 from fea_solver import nr_pipeline
 from gmsh_util import create_normal_mesh, create_box_mesh, plot_distribution
 
+def get_boundary_nodes(nodecoords):
+    ln = np.where(nodecoords[:,0] == 0)[0]
+    rn = np.where(nodecoords[:,0] == np.max(nodecoords[:,0]))[0]
+    bn = np.where(nodecoords[:,1] == 0)[0]
+    tn = np.where(nodecoords[:,1] == np.max(nodecoords[:,1]))[0]
+    return {"ln": ln, "rn": rn, "bn": bn, "tn": tn}
 
 def Q(point, source, ro):
     if source is None:
@@ -33,11 +39,9 @@ if __name__ == '__main__':
     ro = 2  # mm
     vo = 2  # mm/s, 0 if source ain't moving or no source
     problem_params = {
-        "ro": ro,
-        "vo": vo,
-        "source_present": True,
-        "Q": Q
+        "source": {"mode": "laser", "vo": vo, "ro": ro, "Q": Q, "position": np.array([[100, 25]])}
     }
+
 
     boundary_conditions = {
         "top": {
@@ -69,10 +73,11 @@ if __name__ == '__main__':
                             geo_file='rectangle.geo',
                             msf_all=1
                             )
+    boundary_nodes = get_boundary_nodes(nodecoords)
     T_init = 273+20
     theta_init = np.zeros((nodecoords.shape[0], 1))+T_init
-    temperatures = nr_pipeline(nodecoords, ele_con, theta_init, problem_params, boundary_conditions, 
-                               props_chooser, t_final=25, source=np.array([[100, 25]]), mode="transient")
+    temperatures = nr_pipeline(nodecoords, ele_con, boundary_nodes, theta_init, problem_params, boundary_conditions, 
+                               props_chooser, t_final=25, mode="transient")
 
     plot_distribution(temperatures[:, -1], temperatures[:, -1].min(), temperatures[:, -1].max(), nodecoords, ele_con, is_node=True)
     Tmax = temperatures[:, -1].max()-273

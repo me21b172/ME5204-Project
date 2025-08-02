@@ -8,8 +8,8 @@ def apply_bc(n1, n2, d12, l, m, bc, BT_row, BT_data, K_loc, dKT_loc):
         BT_row.append(n2)
         BT_data.append(h*T_inf*d12/2)
         BT_data.append(h*T_inf*d12/2)
-        K_loc[l, l], K_loc[m, m], K_loc[l, m], K_loc[m,l] = d12/3, d12/3, d12/6, d12/6
-        dKT_loc[l, l], dKT_loc[m, m], dKT_loc[l,m], dKT_loc[m, l] = d12/3, d12/3, d12/6, d12/6
+        K_loc[l, l], K_loc[m, m], K_loc[l, m], K_loc[m,l] = h*d12/3, h*d12/3, h*d12/6, h*d12/6
+        dKT_loc[l, l], dKT_loc[m, m], dKT_loc[l,m], dKT_loc[m, l] = h*d12/3, h*d12/3, h*d12/6, h*d12/6
     elif bc["mode"] == "const_T":
         #we technically ignore these and enforce them separately
         pass
@@ -24,7 +24,7 @@ def apply_bc(n1, n2, d12, l, m, bc, BT_row, BT_data, K_loc, dKT_loc):
         raise Exception("No boundary condition defined as such")
     
 def nr_helper(args):
-    (problem_params, nodes, ele, source, theta_prev_time, theta_prev2_time, theta_prev_nr, props_chooser, boundary_conditions) = args
+    (ro, Q, nodes, ele, source_pos, theta_prev_time, theta_prev2_time, theta_prev_nr, boundary_nodes,props_chooser, boundary_conditions) = args
     gp = 3
 
     M_row, M_col, M_data = [], [], []
@@ -33,8 +33,6 @@ def nr_helper(args):
     dKT_row, dKT_col, dKT_data = [], [], []
     F_row, F_data = [], []
     BT_row, BT_data = [], []
-
-    ro = problem_params["ro"]  # mm
 
     dkappa = 0
     drho = 0
@@ -87,11 +85,10 @@ def nr_helper(args):
     d31 = np.sqrt((x1-x3)**2+(y1-y3)**2)
     d = np.array([[0, d12, d31], [d12, 0, d23], [d31, d23, 0]])
 
-    # convection boundary term
-    ln = np.where(nodes[:, 0] == 0)[0]
-    rn = np.where(nodes[:, 0] == np.max(nodes[:, 0]))[0]
-    bn = np.where(nodes[:, 1] == 0)[0]
-    tn = np.where(nodes[:, 1] == np.max(nodes[:, 1]))[0]
+    ln = boundary_nodes["ln"]
+    rn = boundary_nodes["rn"]
+    bn = boundary_nodes["bn"]
+    tn = boundary_nodes["tn"]
 
 
     for l, m in zip([0, 1, 2], [1, 2, 0]):
@@ -124,7 +121,7 @@ def nr_helper(args):
             theta_prev_nr[np.ix_(econ, [0])], process)
         rhos_n, cps_n, kappas_n = props_chooser(
             theta_prev_nr[np.ix_(econ, [0])]+delta, process)
-        
+                
         kappa = N@kappas
         rho = N@rhos
         cp = N@cps
@@ -141,7 +138,7 @@ def nr_helper(args):
         dMT_loc += rho*cp*b + (drho*cp+dcp*drho) * \
             (b@theta_prev_nr[np.ix_(econ, [0])])@N
         X = np.matmul(N, boundary)
-        f_loc += N*problem_params["Q"](X, source, ro)*np.linalg.det(Jac)*weights[k]
+        f_loc += N*Q(X, source_pos, ro)*np.linalg.det(Jac)*weights[k]
         area += np.linalg.det(Jac)*weights[k]
 
     for i in range(nnode):
