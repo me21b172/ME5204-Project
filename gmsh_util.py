@@ -74,7 +74,7 @@ def plot_boundary_nodes(nodecoords, boundary_nodes):
 
 
 def find_triangle_params(rep, nodecoords, ele_con):
-    rep_x, rep_y, rep_z = rep[0, 0], rep[0, 1], rep[0, 2]
+    rep_x, rep_y, rep_z = rep[0], rep[1], rep[2]
     all_x, all_y, all_z = nodecoords[:, 0], nodecoords[:, 1], nodecoords[:, 2]
     # params = np.zeros((ele_con.shape[0],2))
     for i, elei in enumerate(ele_con):
@@ -99,13 +99,42 @@ def find_triangle_params(rep, nodecoords, ele_con):
     print("Triangle not found")
     return -1, -1, -1
 
-def interpolate(position, variable, nodecoords, ele_con):
-    econ, epsilon, eta = find_triangle_params(position, nodecoords, ele_con)
-    if epsilon == -1:
-        return -1
-    v1, v2, v3 = variable[econ]
-    return  (1-epsilon-eta)*v1+epsilon*v2+eta*v3
+def find_mesh_size(nodecoords, ele_con):
+    areas = []
+    gp = 3
+    data_tle = {"ips": {1: [[1/3, 1/3]], 3: [[1/6, 1/6], [1/6, 2/3], [2/3, 1/6]]},
+                "weights": {1: [1/2], 3: [1/6, 1/6, 1/6]}}
 
+    ips = np.array(data_tle["ips"][gp])
+    weights = np.array(data_tle["weights"][gp])
+    for _, elei in enumerate(ele_con):
+        area = 0
+        econ = elei-1
+        boundary = nodecoords[np.ix_(econ, [0, 1])]
+        dN = np.array([[-1, 1, 0], [-1, 0, 1]])
+        Jac = np.matmul(dN, boundary)
+        if np.linalg.det(Jac) < 0:
+            # reordering for the direction to be counter clockwise
+            econ[0], econ[1] = econ[1], econ[0]
+            boundary = nodecoords[np.ix_(econ, [0, 1])]
+            Jac = np.matmul(dN, boundary)
+
+        for k in range(len(ips)):
+            area += np.linalg.det(Jac)*weights[k]
+        areas.append(area)
+    return np.sqrt(np.mean(areas))
+
+def interpolate(positions, variable, nodecoords, ele_con):
+    n_points = positions.shape[0]
+    v_outs = np.full((n_points,), -1)
+    
+    for i, position in enumerate(positions):
+        econ, epsilon, eta = find_triangle_params(position, nodecoords, ele_con)
+        if epsilon == -1:
+            return -1
+        v1, v2, v3 = variable[econ]
+        v_outs[i] = (1-epsilon-eta)*v1+epsilon*v2+eta*v3
+    return v_outs
 
 def create_normal_mesh(geo_file, msf_all):
     gmsh.initialize()
