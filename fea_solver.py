@@ -68,15 +68,15 @@ class FEMSolver:
         # Accumulating data collected over multiprocessing
         st = time.time()
         (M_row, M_col, M_data, K_row, K_col, K_data, dMT_row, 
-         dMT_col, dMT_data, dKT_row, dKT_col, dKT_data, F_row, 
+         dMT_col, dMT_data, dKT_row, dKT_col, dKT_data, dF_row, dF_col, dF_data, F_row, 
          F_data, BT_row, BT_data, areas) = list(zip(*results))
-
+        
         mega = [M_row, M_col, M_data, K_row, K_col, K_data, dMT_row, dMT_col, dMT_data, 
-                dKT_row, dKT_col, dKT_data, F_row, F_data, BT_row, BT_data]
+                dKT_row, dKT_col, dKT_data, dF_row, dF_col, dF_data, F_row, F_data, BT_row, BT_data]
 
         flattened = [flatten(mini) for mini in mega]
         (M_row, M_col, M_data, K_row, K_col, K_data, dMT_row, dMT_col, dMT_data, dKT_row, 
-        dKT_col, dKT_data, F_row, F_data, BT_row, BT_data) = flattened
+        dKT_col, dKT_data, dF_row, dF_col, dF_data, F_row, F_data, BT_row, BT_data) = flattened
 
         if verbose:
             print(f"Time for accumulation of data to end {time.time()-st}")
@@ -99,7 +99,8 @@ class FEMSolver:
             (dMT_data, (dMT_row, dMT_col)), shape=(nop, nop))
         dKT_sparse = csc_array(
             (dKT_data, (dKT_row, dKT_col)), shape=(nop, nop))
-
+        dF_sparse = csc_array(
+            (dF_data, (dF_row, dF_col)), shape=(nop, nop))
         if verbose:
             print(f"Time for matrices creation {time.time()-st}")
 
@@ -115,7 +116,7 @@ class FEMSolver:
         elif mode == "transient":
             R = F+boundary_term - K_sparse@theta_prev_nr - \
                 M_sparse@(theta_prev_nr-theta_prev_time)/dt
-            dR = - dKT_sparse - dMT_sparse/dt
+            dR = - dKT_sparse - dMT_sparse/dt + dF_sparse
 
         theta = theta_prev_nr.copy()
         
