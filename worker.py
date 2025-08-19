@@ -1,5 +1,5 @@
 import numpy as np
-
+sigma = 5.67e-2  # W/mm^2K^4, Stefan-Boltzmann constant
 def apply_bc(n1, n2, d12, l, m, bc, BT_row, BT_data, K_loc, dKT_loc):
     if bc["mode"] == "convection":
         h = bc["h"]
@@ -30,6 +30,7 @@ def nr_helper(args):
     M_row, M_col, M_data = [], [], []
     K_row, K_col, K_data = [], [], []
     dMT_row, dMT_col, dMT_data = [], [], []
+    dF_row, dF_col, dF_data = [], [], []
     dKT_row, dKT_col, dKT_data = [], [], []
     F_row, F_data = [], []
     BT_row, BT_data = [], []
@@ -74,6 +75,7 @@ def nr_helper(args):
     K_loc = np.zeros((nnode, nnode))
     dMT_loc = np.zeros((nnode, nnode))
     dKT_loc = np.zeros((nnode, nnode))
+    dF_loc = np.zeros((nnode, nnode))
     f_loc = np.zeros((nnode, nnode))
 
     # nodes already reordered
@@ -121,7 +123,8 @@ def nr_helper(args):
             theta_prev_nr[np.ix_(econ, [0])], process)
         rhos_n, cps_n, kappas_n = props_chooser(
             theta_prev_nr[np.ix_(econ, [0])]+delta, process)
-                
+
+        temp_ipk = N@theta_prev_nr[np.ix_(econ, [0])][0, 0]
         kappa = N@kappas
         rho = N@rhos
         cp = N@cps
@@ -137,8 +140,9 @@ def nr_helper(args):
         dKT_loc += kappa*a + dkappa*(a@theta_prev_nr[np.ix_(econ, [0])])@N
         dMT_loc += rho*cp*b + (drho*cp+dcp*drho) * \
             (b@theta_prev_nr[np.ix_(econ, [0])])@N
+        dF_loc += 3*sigma*(temp_ipk - 273)**3 * b
         X = np.matmul(N, boundary)
-        f_loc += N*Q(X, source_pos, ro)*np.linalg.det(Jac)*weights[k]
+        f_loc += N*Q(X,temp_ipk,source_pos, ro)*np.linalg.det(Jac)*weights[k]
         area += np.linalg.det(Jac)*weights[k]
 
     for i in range(nnode):
@@ -165,7 +169,12 @@ def nr_helper(args):
                 dKT_row.append(econ[i])
                 dKT_col.append(econ[j])
                 dKT_data.append(dKT_loc[i][j])
+            
+            if dF_loc[i][j] != 0:
+                dF_row.append(econ[i])
+                dF_col.append(econ[j])
+                dF_data.append(dF_loc[i][j])
 
     return M_row, M_col, M_data, K_row, K_col, K_data, dMT_row, dMT_col, dMT_data, \
-           dKT_row, dKT_col, dKT_data, F_row, F_data, BT_row, BT_data, area
+           dKT_row, dKT_col, dKT_data,dF_row, dF_col, dF_data, BT_row, BT_data, area
 
